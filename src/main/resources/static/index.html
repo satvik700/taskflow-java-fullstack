@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TaskFlow</title>
+<style>
+body{font-family:system-ui,sans-serif;background:#f4f6fb;margin:0;color:#222}
+header{background:#3b5bdb;color:#fff;padding:14px 24px;display:flex;justify-content:space-between;align-items:center}
+main{max-width:900px;margin:24px auto;padding:0 16px}
+.card{background:#fff;border-radius:10px;padding:18px;margin-bottom:16px;box-shadow:0 1px 4px #0001}
+input,select,button,textarea{padding:9px;border:1px solid #ccd;border-radius:6px;font-size:14px}
+button{background:#3b5bdb;color:#fff;border:0;cursor:pointer}button.del{background:#e03131}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}.row>*{flex:1;min-width:120px}
+.task{display:flex;justify-content:space-between;align-items:center;gap:10px;border-left:5px solid #adb5bd}
+.HIGH{border-color:#e03131}.MEDIUM{border-color:#f59f00}.LOW{border-color:#2f9e44}
+.DONE .t{text-decoration:line-through;color:#888}.hide{display:none}.err{color:#e03131}small{color:#666}
+</style></head><body>
+<header><b>✅ TaskFlow</b><span id="who"></span></header>
+<main>
+<div id="auth" class="card"><h3>Login / Register</h3>
+ <div class="row"><input id="name" placeholder="Name (register only)"><input id="email" placeholder="Email"><input id="pw" type="password" placeholder="Password (min 6)"></div>
+ <button onclick="auth('login')">Login</button> <button onclick="auth('register')">Register</button>
+ <p id="aerr" class="err"></p></div>
+<div id="app" class="hide">
+ <div class="card"><h3>New Task</h3>
+  <div class="row"><input id="title" placeholder="Title"><select id="priority"><option>LOW</option><option selected>MEDIUM</option><option>HIGH</option></select><input id="due" type="date"></div>
+  <div class="row"><input id="desc" placeholder="Description"></div>
+  <button onclick="addTask()">Add Task</button> <button class="del" onclick="logout()">Logout</button>
+  <p id="terr" class="err"></p></div>
+ <div class="card"><div class="row"><select id="filter" onchange="render()"><option value="">All statuses</option><option>TODO</option><option>IN_PROGRESS</option><option>DONE</option></select><small id="stats"></small></div></div>
+ <div id="list"></div>
+</div></main>
+<script>
+let token=localStorage.getItem('tf_token'), tasks=[];
+const $=id=>document.getElementById(id);
+async function api(path,method='GET',body){
+  const r=await fetch('/api/'+path,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:body?JSON.stringify(body):undefined});
+  if(r.status===204)return null;
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(d.message||d.error||'Request failed ('+r.status+')');
+  return d;
+}
+async function auth(kind){
+  try{const d=await api('auth/'+kind,'POST',{name:$('name').value,email:$('email').value,password:$('pw').value});
+    token=d.token;localStorage.setItem('tf_token',token);localStorage.setItem('tf_name',d.name);start();
+  }catch(e){$('aerr').textContent=e.message}
+}
+function logout(){localStorage.clear();token=null;location.reload()}
+async function start(){
+  if(!token)return;
+  try{tasks=await api('tasks');}catch(e){return logout()}
+  $('auth').classList.add('hide');$('app').classList.remove('hide');
+  $('who').textContent='Hi, '+(localStorage.getItem('tf_name')||'');render();
+}
+async function addTask(){
+  try{await api('tasks','POST',{title:$('title').value,description:$('desc').value,priority:$('priority').value,dueDate:$('due').value||null});
+    $('title').value='';$('desc').value='';$('terr').textContent='';tasks=await api('tasks');render();
+  }catch(e){$('terr').textContent=e.message}
+}
+async function setStatus(id,status){const t=tasks.find(x=>x.id===id);
+  await api('tasks/'+id,'PUT',{title:t.title,description:t.description,priority:t.priority,dueDate:t.dueDate,status});tasks=await api('tasks');render()}
+async function del(id){await api('tasks/'+id,'DELETE');tasks=await api('tasks');render()}
+function render(){
+  const f=$('filter').value, list=$('list');list.innerHTML='';
+  const done=tasks.filter(t=>t.status==='DONE').length;
+  $('stats').textContent=done+' of '+tasks.length+' completed';
+  tasks.filter(t=>!f||t.status===f).forEach(t=>{
+    const d=document.createElement('div');d.className='card task '+t.priority+' '+t.status;
+    const info=document.createElement('div');
+    const b=document.createElement('b');b.className='t';b.textContent=t.title;
+    const s=document.createElement('small');s.textContent=' '+(t.description||'')+(t.dueDate?' • due '+t.dueDate:'');
+    info.append(b,s);
+    const sel=document.createElement('select');
+    ['TODO','IN_PROGRESS','DONE'].forEach(o=>{const op=new Option(o,o,false,o===t.status);sel.add(op)});
+    sel.onchange=()=>setStatus(t.id,sel.value);
+    const x=document.createElement('button');x.className='del';x.textContent='Delete';x.onclick=()=>del(t.id);
+    const box=document.createElement('div');box.append(sel,' ',x);
+    d.append(info,box);list.append(d);
+  });
+}
+start();
+</script></body></html>
